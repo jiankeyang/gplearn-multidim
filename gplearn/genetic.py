@@ -25,6 +25,7 @@ from sklearn.utils.validation import check_array, _check_sample_weight
 from sklearn.utils.multiclass import check_classification_targets
 
 from ._program import _Program
+from ._multi_program import _MultiOutputProgram
 from .fitness import _fitness_map, _Fitness
 from .functions import _function_map, _Function, sig1 as sigmoid
 from .utils import _partition_estimators
@@ -38,6 +39,7 @@ MAX_INT = np.iinfo(np.int32).max
 def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
     """Private function used to build a batch of programs within a job."""
     n_samples, n_features = X.shape
+    _, n_outputs = y.shape
     # Unpack parameters
     tournament_size = params['tournament_size']
     function_set = params['function_set']
@@ -114,25 +116,44 @@ def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
                           'parent_idx': parent_index,
                           'parent_nodes': []}
 
-        program = _Program(function_set=function_set,
-                           arities=arities,
-                           init_depth=init_depth,
-                           init_method=init_method,
-                           n_features=n_features,
-                           metric=metric,
-                           transformer=transformer,
-                           const_range=const_range,
-                           p_point_replace=p_point_replace,
-                           parsimony_coefficient=parsimony_coefficient,
-                           feature_names=feature_names,
-                           random_state=random_state,
-                           program=program)
+        if n_outputs == 1:
+            program = _Program(function_set=function_set,
+                            arities=arities,
+                            init_depth=init_depth,
+                            init_method=init_method,
+                            n_features=n_features,
+                            metric=metric,
+                            transformer=transformer,
+                            const_range=const_range,
+                            p_point_replace=p_point_replace,
+                            parsimony_coefficient=parsimony_coefficient,
+                            feature_names=feature_names,
+                            random_state=random_state,
+                            program=program)
+        else:
+            program = _MultiOutputProgram(function_set=function_set,
+                            arities=arities,
+                            init_depth=init_depth,
+                            init_method=init_method,
+                            n_features=n_features,
+                            n_outputs=n_outputs,
+                            metric=metric,
+                            transformer=transformer,
+                            const_range=const_range,
+                            p_point_replace=p_point_replace,
+                            parsimony_coefficient=parsimony_coefficient,
+                            feature_names=feature_names,
+                            random_state=random_state,
+                            program=program)
 
         program.parents = genome
 
         # Draw samples, using sample weights, and then fit
         if sample_weight is None:
-            curr_sample_weight = np.ones((n_samples,))
+            if n_outputs == 1:
+                curr_sample_weight = np.ones((n_samples,))
+            else:
+                curr_sample_weight = np.ones((n_samples, n_outputs))
         else:
             curr_sample_weight = sample_weight.copy()
         oob_sample_weight = curr_sample_weight.copy()
@@ -309,7 +330,7 @@ class BaseSymbolic(BaseEstimator, metaclass=ABCMeta):
             self.n_classes_ = len(self.classes_)
 
         else:
-            X, y = self._validate_data(X, y, y_numeric=True)
+            X, y = self._validate_data(X, y, y_numeric=True, multi_output=True)
 
         hall_of_fame = self.hall_of_fame
         if hall_of_fame is None:

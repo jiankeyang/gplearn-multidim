@@ -136,6 +136,14 @@ def _protected_log(x1):
     """Closure of log for zero and negative arguments."""
     with np.errstate(divide='ignore', invalid='ignore'):
         return np.where(np.abs(x1) > 0.001, np.log(np.abs(x1)), 0.)
+    
+
+_EXP_MAX = np.exp(50)  # prevent overflow in exp
+
+def _protected_exp(x1):
+    """Closure of exp for large arguments."""
+    with np.errstate(over='ignore', under='ignore'):
+        return np.where(x1 < 50, np.exp(x1), _EXP_MAX)
 
 
 def _protected_inverse(x1):
@@ -156,6 +164,7 @@ mul2 = _Function(function=np.multiply, name='mul', arity=2)
 div2 = _Function(function=_protected_division, name='div', arity=2)
 sqrt1 = _Function(function=_protected_sqrt, name='sqrt', arity=1)
 log1 = _Function(function=_protected_log, name='log', arity=1)
+exp1 = _Function(function=_protected_exp, name='exp', arity=1)
 neg1 = _Function(function=np.negative, name='neg', arity=1)
 inv1 = _Function(function=_protected_inverse, name='inv', arity=1)
 abs1 = _Function(function=np.abs, name='abs', arity=1)
@@ -172,6 +181,7 @@ _function_map = {'add': add2,
                  'div': div2,
                  'sqrt': sqrt1,
                  'log': log1,
+                 'exp': exp1,
                  'abs': abs1,
                  'neg': neg1,
                  'inv': inv1,

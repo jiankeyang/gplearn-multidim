@@ -57,6 +57,7 @@ def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
     p_point_replace = params['p_point_replace']
     max_samples = params['max_samples']
     feature_names = params['feature_names']
+    optimize_constants = params['optimize_constants']
 
     max_samples = int(max_samples * n_samples)
 
@@ -148,6 +149,9 @@ def _parallel_evolve(n_programs, parents, X, y, sample_weight, seeds, params):
                             feature_names=feature_names,
                             random_state=random_state,
                             program=program)
+            
+        if optimize_constants:
+            program.optimize_constants(X, y, sample_weight=np.ones_like(y), random_state=random_state)
 
         program.parents = genome
 
@@ -202,6 +206,7 @@ class BaseSymbolic(BaseEstimator, metaclass=ABCMeta):
                  function_set=('add', 'sub', 'mul', 'div'),
                  transformer=None,
                  metric='mean absolute error',
+                 optimize_constants=False,
                  parsimony_coefficient=0.001,
                  p_crossover=0.9,
                  p_subtree_mutation=0.01,
@@ -229,6 +234,7 @@ class BaseSymbolic(BaseEstimator, metaclass=ABCMeta):
         self.function_set = function_set
         self.transformer = transformer
         self.metric = metric
+        self.optimize_constants = optimize_constants
         self.parsimony_coefficient = parsimony_coefficient
         self.p_crossover = p_crossover
         self.p_subtree_mutation = p_subtree_mutation
@@ -701,6 +707,9 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
         using the SymbolicTransformer would allow creation of multiple features
         at once.
 
+    optimize_constants : bool, optional (default=False)
+        Whether to optimize constants following each round of mutation.
+
     parsimony_coefficient : float or "auto", optional (default=0.001)
         This constant penalizes large programs by adjusting their fitness to
         be less favorable for selection. Larger values penalize the program
@@ -821,6 +830,7 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
                  init_method='half and half',
                  function_set=('add', 'sub', 'mul', 'div'),
                  metric='mean absolute error',
+                 optimize_constants=False,
                  parsimony_coefficient=0.001,
                  p_crossover=0.9,
                  p_subtree_mutation=0.01,
@@ -844,6 +854,7 @@ class SymbolicRegressor(BaseSymbolic, RegressorMixin):
             init_method=init_method,
             function_set=function_set,
             metric=metric,
+            optimize_constants=optimize_constants,
             parsimony_coefficient=parsimony_coefficient,
             p_crossover=p_crossover,
             p_subtree_mutation=p_subtree_mutation,

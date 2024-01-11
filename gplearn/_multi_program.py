@@ -13,6 +13,7 @@ from copy import copy
 
 import numpy as np
 from sklearn.utils.random import sample_without_replacement
+from scipy.optimize import minimize
 
 from .functions import _Function
 from .utils import check_random_state
@@ -353,7 +354,7 @@ class _MultiOutputProgram(object):
         """Calculates the number of functions and terminals in the program."""
         return sum(len(tree) for tree in self.program)
 
-    def execute(self, X):
+    def execute(self, X, replace_constants=None):
         """Execute the multi-output program on the input array X.
 
         Parameters
@@ -367,23 +368,15 @@ class _MultiOutputProgram(object):
             The output values for all input samples.
 
         """
-        outputs = [self._execute_single(tree, X) for tree in self.program]
+        if replace_constants is None:
+            outputs = [self._execute_single(tree, X) for tree in self.program]
+        else:
+            outputs = [self._execute_single(tree, X, replace_constants[i]) for i, tree in enumerate(self.program)]
         return np.column_stack(outputs)
     
-    def _execute_single(self, tree, X):
-        """Execute the program according to X.
-
-        Parameters
-        ----------
-        X : {array-like}, shape = [n_samples, n_features]
-            Training vectors, where n_samples is the number of samples and
-            n_features is the number of features.
-
-        Returns
-        -------
-        y_hats : array-like, shape = [n_samples]
-            The result of executing the program on X.
-
+    def _execute_single(self, tree, X, replace_constants=None):
+        """
+        Execute a single output according to X.
         """
         # Check for single-node programs
         node = tree[0]
@@ -393,11 +386,15 @@ class _MultiOutputProgram(object):
             return X[:, node]
 
         apply_stack = []
+        const_cnt = 0
 
-        for node in tree:
+        for i, node in enumerate(tree):
 
             if isinstance(node, _Function):
                 apply_stack.append([node])
+            elif isinstance(node, float) and replace_constants is not None:
+                apply_stack[-1].append(replace_constants[const_cnt])
+                const_cnt += 1
             else:
                 # Lazily evaluate later
                 apply_stack[-1].append(node)
@@ -708,6 +705,101 @@ class _MultiOutputProgram(object):
                     tree[node] = terminal
 
         return program, mutates
+    
+    def _extract_constants_single(self, tree):
+        """Extract the constants from the program.
+
+        Parameters
+        ----------
+        tree : list
+            The flattened tree representation of the program.
+
+        Returns
+        -------
+        constants : list[float]
+            The value of each constant in the program.
+
+        """
+        constants = []
+        for node in tree:
+            if isinstance(node, float):  # Only constants are of type float
+                constants.append(node)
+        return constants
+    
+    def make_const_opt_objective(self, X, y, sample_weight):
+        """Make the objective function for optimizing constants.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+
+        y : array-like, shape = [n_samples, n_outputs]
+            Target values.
+
+        sample_weight : array-like, shape = [n_samples]
+            Weights applied to individual samples.
+
+        random_state : RandomState instance
+            The random number generator.
+
+        Returns
+        -------
+        objective : callable
+            The objective function to be minimized.
+
+        """
+        consts = []
+        const_cnt = []
+        for tree in self.program:
+            consts.append(self._extract_constants_single(tree))
+            const_cnt.append(len(consts[-1]))
+        split_idx = np.cumsum(const_cnt)
+
+        x0 = np.concatenate(consts)
+        def fun(consts):
+            ci = np.split(consts, split_idx[:-1])
+            y_pred = self.execute(X, replace_constants=ci)
+            return self.metric(y, y_pred, sample_weight)
+
+        return fun, x0
+    
+    def optimize_constants(self, X, y, sample_weight, random_state):
+        """Optimize the constants in the program.
+
+        Parameters
+        ----------
+        X : {array-like}, shape = [n_samples, n_features]
+            Training vectors, where n_samples is the number of samples and
+            n_features is the number of features.
+
+        y : array-like, shape = [n_samples, n_outputs]
+            Target values.
+
+        sample_weight : array-like, shape = [n_samples]
+            Weights applied to individual samples.
+
+        random_state : RandomState instance
+            The random number generator.
+
+        Returns
+        -------
+        None
+
+        """
+        fun, x0 = self.make_const_opt_objective(X, y, sample_weight)
+        if len(x0) == 0:
+            return
+        res = minimize(fun, x0, method='BFGS', options={'disp': False, 'maxiter': 5})
+        # update constants
+        new_consts = res.x
+        cnt = 0
+        for tree in self.program:
+            for i, node in enumerate(tree):
+                if isinstance(node, float):
+                    tree[i] = new_consts[cnt]
+                    cnt += 1
 
     depth_ = property(_depth)
     length_ = property(_length)
